@@ -8,6 +8,9 @@ from tensortrade.oms.exchanges import Exchange
 from tensortrade.oms.services.execution.simulated import execute_order
 from tensortrade.oms.instruments import USD, BTC, ETH
 from tensortrade.oms.wallets import Wallet, Portfolio
+from tensortrade.env.default.rewards import RiskAdjustedReturns, PBR, SimpleProfit
+from tensortrade.env.default.actions import BSH
+
 from tensortrade.agents import DQNAgent
 from ray import tune
 from ray.tune.registry import register_env
@@ -16,12 +19,22 @@ import ray.rllib.agents.ppo as ppo
 # from stable_baselines.common.policies import MlpLnLstmPolicy
 # from stable_baselines import PPO2, A2C
 import os
-
+from ta import add_all_ta_features
+from ta.utils import dropna
+import numpy as np
+import yfinance as yf
 
 cdd = CryptoDataDownload()
-
+# feature engineer
 data = cdd.fetch("Bitstamp", "USD", "BTC", "1h")
-
+# data = yf.download("EURUSD=X", start="2021-01-01", end="2021-01-31", interval='15m')
+data = dropna(data)
+print(data)
+data = add_all_ta_features(
+    data, open="open", high="high", low="low", close="close", volume="volume")
+data = data.dropna(1) 
+# print(data)
+# exit()
 def rsi(price: Stream[float], period: float) -> Stream[float]:
     r = price.diff()
     upside = r.clamp_min(0).abs()
@@ -38,19 +51,15 @@ def macd(price: Stream[float], fast: float, slow: float, signal: float) -> Strea
     return signal
 
 
-def create_env(config=None):
+def create_env(envs_config=None):
     features = []
-    for c in data.columns[1:]:
-        s = Stream.source(list(data[c]), dtype="float").rename(data[c].name)
+    for c in data.columns[5:]:
+        s = Stream.source(list(data[c][-1000:]), dtype="float").rename(data[c].name)
         features += [s]
 
     cp = Stream.select(features, lambda s: s.name == "close")
-
-    features = [
-        cp.log().diff().rename("lr"),
-        rsi(cp, period=20).rename("rsi"),
-        macd(cp, fast=10, slow=50, signal=5).rename("macd")
-    ]
+    
+    features = [cp.log().diff().fillna(0).rename("lr")] + features[1:]
 
     feed = DataFeed(features)
     feed.compile()
@@ -74,11 +83,23 @@ def create_env(config=None):
         Stream.source(list(data["volume"]), dtype="float").rename("volume") 
     ])
 
+    # reward_scheme = RiskAdjustedReturns(
+    #     return_algorithm='sortino', 
+    #     risk_free_rate=0.025, 
+    #     target_returns=0.1, 
+    #     window_size=200
+    # )
+    reward_scheme = SimpleProfit(window_size=200) #PBR(price=cp)
+
+    action_scheme = BSH(
+        cash=portfolio.wallets[0],
+        asset=portfolio.wallets[1]
+    ).attach(reward_scheme)
 
     env = default.create(
         portfolio=portfolio,
         action_scheme="managed-risk",
-        reward_scheme="risk-adjusted",
+        reward_scheme=reward_scheme, #"risk-adjusted",
         feed=feed,
         renderer_feed=renderer_feed,
         renderer=default.renderers.PlotlyTradingChart(display=False, save_format='html', path='./agents/charts/'),
@@ -86,103 +107,93 @@ def create_env(config=None):
     )
     return env
 
+Trainer_config = {
+    "env": "TradingEnv",
+    "model": {
+        "fcnet_hiddens": [256, 256],
+        "fcnet_activation": "relu",
+        "use_lstm": True,
+        # Max seq len for training the LSTM, defaults to 20.
+        "max_seq_len": 60,
+        # Size of the LSTM cell.
+        "lstm_cell_size": 256,
+        # Whether to feed a_{t-1} to LSTM (one-hot encoded if discrete).
+        "lstm_use_prev_action": True,
+        # Whether to feed r_{t-1} to LSTM.
+        "lstm_use_prev_reward": True,
+    },
+    "env_config": {
+        "window_size": 25
+    },
+    "log_level": "DEBUG",
+    "framework": "torch",
+    "ignore_worker_failures": True,
+    "num_workers": 1,
+    "num_gpus": 0,
+    "clip_rewards": True,
+    "lr": 8e-6,
+    "gamma": 0,
+    "observation_filter": "MeanStdFilter",
+    "lambda": 0.72,
+    "vf_loss_coeff": 0.5,
+    "entropy_coeff": 0.01,
+    "eager_tracing": True
+}
 
-##############################################
-#　PPO ray
-env = create_env()
-agent = DQNAgent(env)
+register_env("TradingEnv", create_env)
+ray.init()
 
-agent.train(n_steps=15000, n_episodes=1000, save_path="./agents/", save_every=100)
+print("Run training! PPO analysis.")
+analysis = tune.run(
+    ppo.PPOTrainer,
+    stop={
+      "episode_reward_mean": 5000
+    },
+    config=Trainer_config,
+    checkpoint_at_end=True,
+    local_dir="./results"
+)
 
-# register_env("TradingEnv", create_env)[]
-# ray.init()
-# print("Run training! PPO analysis.")
-# analysis = tune.run(
-#     "PPO",
-#     stop={
-#       "episode_reward_mean": 5000
-#     },
-#     config={
-#         "env": "TradingEnv",
-#         "env_config": {
-#             "window_size": 25
-#         },
-#         "log_level": "DEBUG",
-#         "framework": "torch",
-#         "ignore_worker_failures": True,
-#         "num_workers": 1,
-#         "num_gpus": 0,
-#         "clip_rewards": True,
-#         "lr": 8e-6,
-#         "gamma": 0,
-#         "observation_filter": "MeanStdFilter",
-#         "lambda": 0.72,
-#         "vf_loss_coeff": 0.5,
-#         "entropy_coeff": 0.01
-#     },
-#     checkpoint_at_end=True,
-#     local_dir="./results"
-# )
+print("Done.")
+print("Save checkpoint.")
 
-# print("Done.")
-# print("Save checkpoint.")
+# Get checkpoint
+checkpoints = analysis.get_trial_checkpoints_paths(
+    trial=analysis.get_best_trial("episode_reward_mean", mode="max"), 
+    metric="episode_reward_mean"
+)
+checkpoint_path = checkpoints[0][0]
 
-# # Get checkpoint
-# checkpoints = analysis.get_trial_checkpoints_paths(
-#     trial=analysis.get_best_trial("episode_reward_mean"),
-#     metric="episode_reward_mean"
-# )
-# checkpoint_path = checkpoints[0][0]
-
-# print("Restore agent from checkpoint.")
+print("Restore agent from checkpoint.")
 
 # Restore agent
-# agent = ppo.PPOTrainer(
-#     env="TradingEnv",
-#     config={
-#         "env_config": {
-#             "window_size": 25
-#         },
-#         "framework": "torch",
-#         "log_level": "DEBUG",
-#         "ignore_worker_failures": True,
-#         "num_workers": 4,
-#         "num_gpus": 2,
-#         "clip_rewards": True,
-#         "lr": 8e-6,
-#         "gamma": 0,
-#         "observation_filter": "MeanStdFilter",
-#         "lambda": 0.72,
-#         "vf_loss_coeff": 0.5,
-#         "entropy_coeff": 0.01
-#     }
-# )
+
+agent = ppo.PPOTrainer(
+    env="TradingEnv",
+    config=Trainer_config
+)
 
 # agent.train()
-# # agent.restore(checkpoint_path)
+# checkpoint_pat[h = "/home/davidfan/VLL/FX/tensortrade/2_PPO-lstm-BTCUSD/results/PPO_2021-02-04_00-50-12/PPO_TradingEnv_e1b5f_00000_0_2021-02-04_00-50-12/checkpoint_2/checkpoint-2"
+agent.restore(checkpoint_path)
 
-# # # Instantiate the environment
-# # env = create_env({
-# #     "window_size": 25
-# # })
+# # Instantiate the environment
+env = create_env({
+    "window_size": 25
+})
 
-# # # Run until episode ends
-# episode_reward = 0
-# done = False
-# obs = env.reset()
+# # Run until episode ends
+episode_reward = 0
+done = False
+obs = env.reset()
+state = agent.get_policy().model.get_initial_state()
 
-# while not done:
-#     action = agent.compute_action(obs)
-#     obs, reward, done, info = env.step(action)
-#     episode_reward += reward
+while not done:
+    action, state, logit = agent.compute_action(observation=obs, prev_action=1.0, 
+                                         prev_reward = 0.0, state = state)
+    obs, reward, done, info = env.step(action)
+    episode_reward += reward
 
-# date_string = "_".join(str(datetime.utcnow()).split())
+print("episode_reward: ", episode_reward)
 
-# os.mkdir(f"charts/{date_string}")
-
-# fig = env.render()
-# # fig.savefig(f"charts/{date_string}/test_sine_curve.png")
-
-# # env.render()
-
-########################################
+env.render()    
