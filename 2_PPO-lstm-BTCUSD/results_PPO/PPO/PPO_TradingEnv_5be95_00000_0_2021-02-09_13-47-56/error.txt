@@ -1,0 +1,55 @@
+Failure # 1 (occurred at 2021-02-09_13-48-00)
+Traceback (most recent call last):
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/tune/trial_runner.py", line 519, in _process_trial
+    result = self.trial_executor.fetch_result(trial)
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/tune/ray_trial_executor.py", line 497, in fetch_result
+    result = ray.get(trial_future[0], timeout=DEFAULT_GET_TIMEOUT)
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/worker.py", line 1379, in get
+    raise value.as_instanceof_cause()
+ray.exceptions.RayTaskError(KeyError): [36mray::PPO.train()[39m (pid=2736945, ip=192.168.88.226)
+  File "python/ray/_raylet.pyx", line 422, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 456, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 459, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 463, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 415, in ray._raylet.execute_task.function_executor
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/agents/trainer_template.py", line 106, in __init__
+    Trainer.__init__(self, config, env, logger_creator)
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/agents/trainer.py", line 465, in __init__
+    super().__init__(config, logger_creator)
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/tune/trainable.py", line 96, in __init__
+    self.setup(copy.deepcopy(self.config))
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/agents/trainer.py", line 629, in setup
+    self._init(self.config, self.env_creator)
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/agents/trainer_template.py", line 133, in _init
+    self.workers = self._make_workers(
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/agents/trainer.py", line 700, in _make_workers
+    return WorkerSet(
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/evaluation/worker_set.py", line 79, in __init__
+    remote_spaces = ray.get(self.remote_workers(
+ray.exceptions.RayTaskError(KeyError): [36mray::RolloutWorker.foreach_policy()[39m (pid=2736953, ip=192.168.88.226)
+  File "/home/davidfan/.local/lib/python3.8/site-packages/pandas/core/indexes/base.py", line 2895, in get_loc
+    return self._engine.get_loc(casted_key)
+  File "pandas/_libs/index.pyx", line 70, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 101, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 1675, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 1683, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'Date'
+
+The above exception was the direct cause of the following exception:
+
+[36mray::RolloutWorker.foreach_policy()[39m (pid=2736953, ip=192.168.88.226)
+  File "python/ray/_raylet.pyx", line 422, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 456, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 459, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 463, in ray._raylet.execute_task
+  File "python/ray/_raylet.pyx", line 415, in ray._raylet.execute_task.function_executor
+  File "/home/davidfan/miniconda3/envs/RL/lib/python3.8/site-packages/ray/rllib/evaluation/rollout_worker.py", line 372, in __init__
+    self.env = _validate_env(env_creator(env_context))
+  File "main_simple.py", line 165, in create_env
+    Stream.source(list(data["Date"][k:w])).rename("date"),
+  File "/home/davidfan/.local/lib/python3.8/site-packages/pandas/core/frame.py", line 2902, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "/home/davidfan/.local/lib/python3.8/site-packages/pandas/core/indexes/base.py", line 2897, in get_loc
+    raise KeyError(key) from err
+KeyError: 'Date'
+

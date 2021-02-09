@@ -26,14 +26,14 @@ import yfinance as yf
 
 cdd = CryptoDataDownload()
 # feature engineer
-data = cdd.fetch("Bitstamp", "USD", "BTC", "1h")
+data = cdd.fetch("Bitstamp", "USD", "BTC", "minute")
 # data = yf.download("EURUSD=X", start="2021-01-01", end="2021-01-31", interval='15m')
 data = dropna(data)
-print(data)
+# print(data)
 data = add_all_ta_features(
     data, open="open", high="high", low="low", close="close", volume="volume")
 data = data.dropna(1) 
-# print(data)
+print(data)
 # exit()
 def rsi(price: Stream[float], period: float) -> Stream[float]:
     r = price.diff()
@@ -54,7 +54,7 @@ def macd(price: Stream[float], fast: float, slow: float, signal: float) -> Strea
 def create_env(envs_config=None):
     features = []
     for c in data.columns[5:]:
-        s = Stream.source(list(data[c][-1000:]), dtype="float").rename(data[c].name)
+        s = Stream.source(list(data[c][-100:]), dtype="float").rename(data[c].name)
         features += [s]
 
     cp = Stream.select(features, lambda s: s.name == "close")
@@ -91,10 +91,10 @@ def create_env(envs_config=None):
     # )
     reward_scheme = SimpleProfit(window_size=200) #PBR(price=cp)
 
-    action_scheme = BSH(
-        cash=portfolio.wallets[0],
-        asset=portfolio.wallets[1]
-    ).attach(reward_scheme)
+    # action_scheme = BSH(
+    #     cash=portfolio.wallets[0],
+    #     asset=portfolio.wallets[1]
+    # ).attach(reward_scheme)
 
     env = default.create(
         portfolio=portfolio,
@@ -178,9 +178,7 @@ agent = ppo.PPOTrainer(
 agent.restore(checkpoint_path)
 
 # # Instantiate the environment
-env = create_env({
-    "window_size": 25
-})
+env = create_env()
 
 # # Run until episode ends
 episode_reward = 0
@@ -189,8 +187,7 @@ obs = env.reset()
 state = agent.get_policy().model.get_initial_state()
 
 while not done:
-    action, state, logit = agent.compute_action(observation=obs, prev_action=1.0, 
-                                         prev_reward = 0.0, state = state)
+    action, state, logit = agent.compute_action(observation=obs, prev_action=1.0, prev_reward = 0.0, state = state)
     obs, reward, done, info = env.step(action)
     episode_reward += reward
 
